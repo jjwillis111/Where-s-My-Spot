@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Where's My Spot? DC Street Parking Finder</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<style>
+  :root {
+    --ink: #10233F;
+    --ink-soft: #3C4E6B;
+    --paper: #F3F5F1;
+    --panel: #FFFFFF;
+    --line: #D8DCD3;
+    --open: #2F8F5B;
+    --open-bg: #E7F3EC;
+    --restricted: #C8102E;
+    --restricted-bg: #FBE7E9;
+    --amber: #B4740E;
+    --amber-bg: #FBF0DD;
+    --sign-green: #0B6E4F;
+    --hazard-a: #F2B705;
+    --asphalt: #24262B;
+    --sign-font: "Arial Black", "Arial Narrow", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  body {
+    background-color: var(--asphalt);
+    background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+    background-size: 16px 16px;
+    padding: 18px 10px 32px;
+    min-height: 100vh;
+  }
+  .app {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 0 28px;
+    background: var(--panel);
+    border: 6px solid var(--sign-green);
+    border-radius: 12px;
+    box-shadow: 0 14px 34px rgba(0,0,0,0.45);
+    overflow: hidden;
+  }
+  header.topbar {
+    padding: 16px 16px 0;
+  }
+  .sign {
+    position: relative;
+    background: var(--sign-green);
+    border: 4px solid #FFFFFF;
+    border-radius: 10px;
+    padding: 16px 20px 14px;
+    text-align: center;
+    box-shadow: 0 3px 0 rgba(16,35,63,0.35), 0 8px 14px rgba(16,35,63,0.22);
+  }
+  .sign .bolt {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    opacity: 0.9;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.45);
+  }
+  .sign .bolt.tl { top: 8px; left: 10px; }
+  .sign .bolt.tr { top: 8px; right: 10px; }
+  .sign .bolt.bl { bottom: 8px; left: 10px; }
+  .sign .bolt.br { bottom: 8px; right: 10px; }
+  header.topbar h1 {
+    font-family: var(--sign-font);
+    font-weight: 900;
+    font-size: 27px;
+    line-height: 1.1;
+    margin: 0 0 4px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: #FFFFFF;
+  }
+  header.topbar p {
+    margin: 0;
+    font-size: 13px;
+    letter-spacing: 0.3px;
+    color: rgba(255,255,255,0.9);
+  }
+  .hazard-stripe {
+    height: 6px;
+    margin-top: 12px;
+    background: repeating-linear-gradient(135deg, var(--hazard-a) 0 10px, var(--ink) 10px 20px);
+  }
+  form.search-row {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+  form.search-row input {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 15px;
+    border: 2px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--ink);
+  }
+  form.search-row input:focus {
+    outline: none;
+    border-color: var(--ink);
+  }
+  form.search-row button {
+    padding: 10px 16px;
+    font-size: 13.5px;
+    font-family: var(--sign-font);
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    border-radius: 6px;
+  }
+  form.search-row button:active { background: var(--ink-soft); }
+
+  #map {
+    height: 54vh;
+    min-height: 380px;
+    width: 100%;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+  #status-text { color: var(--ink-soft); flex: 1; }
+  #status-text::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 7px;
+    border-radius: 50%;
+    background: var(--ink-soft);
+    vertical-align: middle;
+  }
+  #status-text.loading { color: var(--amber); }
+  #status-text.loading::before { background: var(--amber); }
+  #status-text.error { color: var(--restricted); }
+  #status-text.error::before { background: var(--restricted); }
+  #status-text.ready { color: var(--open); }
+  #status-text.ready::before { background: var(--open); }
+  #city-btn, #refresh-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: var(--sign-font);
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    background: var(--panel);
+    border: 1.5px solid var(--ink);
+    border-radius: 5px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  #city-btn:active, #refresh-btn:active { background: var(--paper); }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 4px 16px 14px;
+  }
+  .legend .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: var(--sign-font);
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    border: 1.5px solid rgba(255,255,255,0.55);
+  }
+  .legend .chip.open { background: var(--open); color: #FFFFFF; }
+  .legend .chip.restricted { background: var(--restricted); color: #FFFFFF; }
+  .legend .chip.meter { background: var(--amber); color: #FFFFFF; }
+  .legend .chip .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #FFFFFF;
+  }
+
+  details.info {
+    margin: 0 16px 8px;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    overflow: hidden;
+  }
+  details.info summary {
+    padding: 12px 14px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  details.info .info-body {
+    padding: 0 14px 14px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+  details.info .info-body h3 {
+    font-size: 13.5px;
+    color: var(--ink);
+    margin: 14px 0 4px;
+  }
+  details.info .info-body h3:first-child { margin-top: 0; }
+  details.info .info-body p { margin: 0 0 8px; }
+  details.info .info-body strong { color: var(--ink); }
+
+  .leaflet-popup-content { font-size: 13.5px; line-height: 1.45; }
+  .popup strong { display: block; margin-bottom: 4px; font-size: 14px; }
+  .popup p { margin: 3px 0; }
+  .popup.restricted strong { color: var(--restricted); }
+  .popup.open strong { color: var(--open); }
+  .popup.meter strong { color: var(--amber); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="sign">
+      <span class="bolt tl"></span>
+      <span class="bolt tr"></span>
+      <span class="bolt bl"></span>
+      <span class="bolt br"></span>
+      <h1>Where's My Spot?</h1>
+      <p>DC street parking, live and block by block</p>
+    </div>
+  </header>
+  <div class="hazard-stripe"></div>
+
+  <form class="search-row" id="search-form">
+    <input id="address-input" type="text" placeholder="Search an address, e.g. 200 K St NE" autocomplete="off" />
+    <button type="submit">Find</button>
+  </form>
+
+  <div id="map"></div>
+
+  <div class="status-row">
+    <span id="status-text">Loading map…</span>
+    <button id="city-btn" type="button">Full city</button>
+    <button id="refresh-btn" type="button">Refresh area</button>
+  </div>
+
+  <div class="legend">
+    <span class="chip open"><span class="dot"></span>No permit needed</span>
+    <span class="chip restricted"><span class="dot"></span>Permit zone</span>
+    <span class="chip meter"><span class="dot"></span>Metered</span>
+  </div>
+
+  <details class="info">
+    <summary>Read the fine print</summary>
+    <div class="info-body">
+      <h3>How the colors are decided</h3>
+      <p>Every street block in the District is checked against DDOT's Residential Parking Permit (RPP) Blocks dataset. Green means that block is not in the RPP dataset, so the standard 2-hour non-resident limit does not apply there. Red means the block is flagged as an RPP zone. Amber dots mark individual parking meters, from DDOT's meter inventory; those load once you zoom in past street level.</p>
+
+      <h3>On a red block</h3>
+      <p>Without a DC-issued RPP sticker for that zone, or an active reciprocity permit, a vehicle can only stay up to 2 hours during enforcement hours (mostly weekdays; some zones, including Georgetown, also enforce evenings and Saturdays). Moving the car to another spot in the same zone does not reset the clock. DC tracks the plate across the whole zone, not just the parking space.</p>
+
+      <h3>On a green block</h3>
+      <p>There is no 2-hour RPP cap here, but green does not mean free. Check for meter dots before assuming a spot has no charge. This dataset also does not capture street cleaning schedules, snow-emergency routes, loading zones, rush-hour clearways, or plain "No Parking Anytime" signs. Always check the posted signage on the actual block before treating a spot as safe long-term.</p>
+
+      <h3>The 72-hour rule</h3>
+      <p>Regardless of color, DC does not allow a vehicle to sit in the same spot on a public street for more than 72 consecutive hours. It applies everywhere, RPP zone or not, metered or not, and it's enforced separately from RPP and meters as its own abandoned-vehicle rule. Move the car at least once every three days if you're leaving it somewhere for a while.</p>
+
+      <h3>Other things that override everything</h3>
+      <p>Temporary signs, usually paper zip-tied to a pole, go up for construction, moving trucks, and special events with little notice, and they supersede whatever's normally posted, RPP or not. Streets with rush-hour restrictions, commonly 7 to 9am and 4 to 6:30pm, tow immediately during those windows even if they're open parking the rest of the day. And two or more unpaid tickets older than 60 days make a vehicle eligible for booting, on top of whatever the underlying violation was. None of that shows up on this map, so it's worth a glance at the actual pole before you walk away.</p>
+
+      <h3>Out-of-state plates</h3>
+      <p>Anyone keeping an out-of-state vehicle in DC for an extended stretch may qualify for a DC DMV reciprocity permit, which allows the vehicle to keep its home-state plates while becoming eligible for an RPP sticker in whichever zone it's parked, removing the 2-hour cap on red blocks. Separately, DC generally requires a vehicle kept in the District to be registered after 60 consecutive days, and DPW can flag an unregistered out-of-state car after 30 days, unless it holds a reciprocity permit or exemption.</p>
+
+      <h3>Data source</h3>
+      <p>Streets, RPP blocks, and meters are pulled live from DC GIS (DDOT) each time you pan the map or tap Full city. A city-wide load pages through several thousand blocks, so it takes a few seconds longer than a single block, and meters only load once you're zoomed in close enough to make out individual blocks.</p>
+    </div>
+  </details>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+(function(){
+  const STREETS_URL = 'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Transportation_WebMercator/MapServer/48/query';
+  const RPP_URL = 'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Transportation_Parking_WebMercator/MapServer/79/query';
+  const METERS_URL = 'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Transportation_Parking_WebMercator/MapServer/76/query';
+  const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+  const DC_BOUNDS = [[38.7916, -77.1198], [38.9955, -76.9094]];
+  const MIN_ZOOM_TO_LOAD = 11;
+  const MIN_ZOOM_FOR_METERS = 15;
+  const COLOR_OPEN = '#2F8F5B';
+  const COLOR_RESTRICTED = '#C8102E';
+  const COLOR_METER = '#B4740E';
+
+  const statusEl = document.getElementById('status-text');
+  const refreshBtn = document.getElementById('refresh-btn');
+  const cityBtn = document.getElementById('city-btn');
+  const searchForm = document.getElementById('search-form');
+  const addressInput = document.getElementById('address-input');
+
+  const map = L.map('map', { zoomControl: true, preferCanvas: true }).fitBounds(DC_BOUNDS);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  const streetLayer = L.layerGroup().addTo(map);
+  const meterLayer = L.layerGroup().addTo(map);
+
+  function setStatus(text, kind){
+    statusEl.textContent = text;
+    statusEl.className = kind || '';
+  }
+
+  function escapeHtml(s){
+    return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function debounce(fn, ms){
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+  }
+
+  function boundsToEnvelope(bounds){
+    const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+    return `${sw.lng},${sw.lat},${ne.lng},${ne.lat}`;
+  }
+
+  async function fetchOnePage(url, whereClause, bounds, outFields, offset){
+    const params = new URLSearchParams({
+      where: whereClause,
+      geometry: boundsToEnvelope(bounds),
+      geometryType: 'esriGeometryEnvelope',
+      inSR: '4326',
+      spatialRel: 'esriSpatialRelIntersects',
+      outFields: outFields,
+      outSR: '4326',
+      f: 'json',
+      resultRecordCount: '2000',
+      resultOffset: String(offset)
+    });
+    const resp = await fetch(`${url}?${params.toString()}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || `ArcGIS error ${data.error.code || ''}`);
+    return data;
+  }
+
+  // Pages through resultOffset until a page comes back short, so a city-wide
+  // view isn't silently cut off at one server-side page of 2000 records.
+  async function fetchArcGIS(url, whereClause, bounds, outFields){
+    const PAGE_SIZE = 2000;
+    const MAX_PAGES = 20; // safety cap: 40,000 records is far more than DC has
+    let allFeatures = [];
+    let offset = 0;
+    let page = 0;
+    let incomplete = false;
+    while (page < MAX_PAGES) {
+      const data = await fetchOnePage(url, whereClause, bounds, outFields, offset);
+      const feats = data.features || [];
+      allFeatures = allFeatures.concat(feats);
+      page++;
+      if (feats.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+      if (page >= MAX_PAGES) incomplete = true;
+    }
+    return { features: allFeatures, exceededTransferLimit: incomplete };
+  }
+
+  // Esri JSON polyline paths are [x,y] (lon,lat); Leaflet wants [lat,lng].
+  function esriPathsToLatLngs(geometry){
+    if (!geometry || !geometry.paths) return [];
+    return geometry.paths.map(path => path.map(([x, y]) => [y, x]));
+  }
+
+  function esriPointToLatLng(geometry){
+    if (!geometry || typeof geometry.x !== 'number' || typeof geometry.y !== 'number') return null;
+    return [geometry.y, geometry.x];
+  }
+
+  function buildPopup(name, isRestricted, ward){
+    const wardText = ward ? ` &middot; Ward ${escapeHtml(String(ward))}` : '';
+    if (isRestricted) {
+      return `<div class="popup restricted">
+        <strong>${escapeHtml(name)}</strong>
+        <p>Flagged as an RPP block${wardText} in DDOT's dataset.</p>
+        <p>Without an RPP sticker or active reciprocity permit for this zone, parking here is limited to 2 hours during enforcement hours.</p>
+      </div>`;
+    }
+    return `<div class="popup open">
+      <strong>${escapeHtml(name)}</strong>
+      <p>No RPP restriction found${wardText} in DDOT's dataset.</p>
+      <p>No 2-hour non-resident cap here. Check in person for street cleaning, snow-emergency, loading-zone, or no-parking signage.</p>
+    </div>`;
+  }
+
+  function buildMeterPopup(attrs){
+    const address = attrs.ADDRESS || 'Parking meter';
+    const policy = attrs.POLICY_DESCRIPTION || "Rate and hours not listed here; check the meter or ParkMobile app.";
+    const spaces = attrs.PARKING_SPACES ? `${attrs.PARKING_SPACES} space${attrs.PARKING_SPACES === 1 ? '' : 's'}` : null;
+    const zone = attrs.MOBILEPAY_ZONE ? `ParkMobile zone ${escapeHtml(String(attrs.MOBILEPAY_ZONE))}` : null;
+    const meta = [spaces, zone].filter(Boolean).join(' &middot; ');
+    return `<div class="popup meter">
+      <strong>${escapeHtml(address)}</strong>
+      <p>${escapeHtml(policy)}</p>
+      ${meta ? `<p>${meta}</p>` : ''}
+      <p>This is a paid spot during meter hours, even though it may not be in an RPP zone.</p>
+    </div>`;
+  }
+
+  async function loadArea(){
+    const zoom = map.getZoom();
+    if (zoom < MIN_ZOOM_TO_LOAD) {
+      streetLayer.clearLayers();
+      setStatus(`Zoom in a bit further to load data (zoom ${zoom} of ${MIN_ZOOM_TO_LOAD}+ needed).`, '');
+      return;
+    }
+    setStatus('Loading block data from DC GIS, this can take a few seconds zoomed out…', 'loading');
+    const bounds = map.getBounds();
+    const [streetsResult, rppResult] = await Promise.allSettled([
+      fetchArcGIS(STREETS_URL, "ROADTYPE='1' AND DCFUNCTIONALCLASS NOT IN (11,12)", bounds,
+        'BLOCKKEY,STREETNAME,STREETTYPE,ROUTENAME,WARD_ID'),
+      fetchArcGIS(RPP_URL, '1=1', bounds, 'BLOCKKEY,WARD_ID')
+    ]);
+    if (streetsResult.status === 'rejected') {
+      setStatus('Street layer failed to load: ' + streetsResult.reason.message, 'error');
+      return;
+    }
+    if (rppResult.status === 'rejected') {
+      setStatus('RPP layer failed to load: ' + rppResult.reason.message, 'error');
+      return;
+    }
+    const streetsGeo = streetsResult.value, rppGeo = rppResult.value;
+    try {
+      const rppBlocks = new Set();
+      (rppGeo.features || []).forEach(f => {
+        if (f.attributes && f.attributes.BLOCKKEY) rppBlocks.add(f.attributes.BLOCKKEY);
+      });
+
+      streetLayer.clearLayers();
+      let openCount = 0, restrictedCount = 0;
+
+      (streetsGeo.features || []).forEach(f => {
+        const attrs = f.attributes || {};
+        const bk = attrs.BLOCKKEY;
+        const isRestricted = !!(bk && rppBlocks.has(bk));
+        if (isRestricted) restrictedCount++; else openCount++;
+
+        const color = isRestricted ? COLOR_RESTRICTED : COLOR_OPEN;
+        const name = [attrs.STREETNAME, attrs.STREETTYPE].filter(Boolean).join(' ') || attrs.ROUTENAME || 'Unnamed street';
+
+        const latlngs = esriPathsToLatLngs(f.geometry);
+        if (!latlngs.length) return;
+        const layer = L.polyline(latlngs, { color, weight: 4, opacity: 0.85 });
+        layer.bindPopup(buildPopup(name, isRestricted, attrs.WARD_ID));
+        layer.addTo(streetLayer);
+      });
+
+      const truncatedWarning = (streetsGeo.exceededTransferLimit || rppGeo.exceededTransferLimit) ? ' (results truncated, zoom in further)' : '';
+      let meterNote = '';
+      if (zoom >= MIN_ZOOM_FOR_METERS) {
+        try {
+          const metersGeo = await fetchArcGIS(METERS_URL, '1=1', bounds,
+            'METERID,ADDRESS,POLICY_DESCRIPTION,PARKING_SPACES,MOBILEPAY_ZONE');
+          meterLayer.clearLayers();
+          (metersGeo.features || []).forEach(f => {
+            const latlng = esriPointToLatLng(f.geometry);
+            if (!latlng) return;
+            const marker = L.circleMarker(latlng, {
+              radius: 5, color: '#10233F', weight: 1.5, fillColor: COLOR_METER, fillOpacity: 0.9
+            });
+            marker.bindPopup(buildMeterPopup(f.attributes || {}));
+            marker.addTo(meterLayer);
+          });
+          meterNote = ` &middot; ${(metersGeo.features || []).length} meter${(metersGeo.features || []).length === 1 ? '' : 's'}`;
+        } catch (err) {
+          meterLayer.clearLayers();
+          meterNote = ' &middot; meters unavailable right now';
+        }
+      } else {
+        meterLayer.clearLayers();
+        meterNote = ' &middot; zoom in further for meters';
+      }
+
+      setStatus(`${openCount} open block${openCount===1?'':'s'} &middot; ${restrictedCount} RPP block${restrictedCount===1?'':'s'} loaded${meterNote}${truncatedWarning}`, 'ready');
+    } catch (err) {
+      setStatus('Could not load live data: ' + err.message, 'error');
+    }
+  }
+
+  async function searchAddress(query){
+    const params = new URLSearchParams({
+      q: `${query}, Washington, DC`,
+      format: 'json',
+      limit: '1',
+      viewbox: '-77.15,38.80,-76.90,38.99',
+      bounded: '1'
+    });
+    const resp = await fetch(`${NOMINATIM_URL}?${params.toString()}`, {
+      headers: { 'Accept': 'application/json' }
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const results = await resp.json();
+    if (!results.length) throw new Error('address not found');
+    const lat = parseFloat(results[0].lat), lon = parseFloat(results[0].lon);
+    map.setView([lat, lon], 18);
+  }
+
+  map.on('moveend', debounce(loadArea, 600));
+
+  refreshBtn.addEventListener('click', loadArea);
+  cityBtn.addEventListener('click', () => map.fitBounds(DC_BOUNDS));
+
+  searchForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = addressInput.value.trim();
+    if (!q) return;
+    setStatus('Looking up address…', 'loading');
+    try {
+      await searchAddress(q);
+    } catch (err) {
+      setStatus('Could not find that address: ' + err.message, 'error');
+    }
+  });
+
+  loadArea();
+})();
+</script>
+</body>
+</html>
